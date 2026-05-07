@@ -10,13 +10,13 @@ import { Search, X } from "lucide-react";
 interface RepoListProps {
   repos: GitHubRepo[];
   username: string;
+  onOpenTerminal?: (repo: { clone_url: string; name: string }) => void;
 }
 
-export function RepoList({ repos, username }: RepoListProps) {
+export function RepoList({ repos, username, onOpenTerminal }: RepoListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
 
-  // Extraer lenguajes únicos
   const languages = useMemo(() => {
     const langSet = new Set<string>();
     repos.forEach((repo) => {
@@ -25,7 +25,6 @@ export function RepoList({ repos, username }: RepoListProps) {
     return Array.from(langSet).sort();
   }, [repos]);
 
-  // Filtrar repos
   const filteredRepos = useMemo(() => {
     return repos.filter((repo) => {
       const matchesSearch =
@@ -43,7 +42,6 @@ export function RepoList({ repos, username }: RepoListProps) {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">
@@ -56,9 +54,7 @@ export function RepoList({ repos, username }: RepoListProps) {
         </div>
       </div>
 
-      {/* Filtros */}
       <div className="space-y-4">
-        {/* Búsqueda */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -77,7 +73,6 @@ export function RepoList({ repos, username }: RepoListProps) {
           )}
         </div>
 
-        {/* Filtros de lenguaje */}
         {languages.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <span className="text-sm text-muted-foreground py-1">
@@ -108,7 +103,6 @@ export function RepoList({ repos, username }: RepoListProps) {
         )}
       </div>
 
-      {/* Resultados */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
           Mostrando {filteredRepos.length} de {repos.length} repositorios
@@ -126,11 +120,14 @@ export function RepoList({ repos, username }: RepoListProps) {
         )}
       </div>
 
-      {/* Grid de repos */}
       {filteredRepos.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRepos.map((repo) => (
-            <RepoCard key={repo.id} repo={repo} />
+            <RepoCard 
+              key={repo.id} 
+              repo={repo} 
+              onOpenTerminal={onOpenTerminal}
+            />
           ))}
         </div>
       ) : (

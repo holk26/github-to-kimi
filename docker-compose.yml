@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: kimi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kimi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kimi123}
+      POSTGRES_DB: ${POSTGRES_DB:-kimiweb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kimi-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kimi} -d ${POSTGRES_DB:-kimiweb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kimi CLI Service - Ejecuta comandos de Kimi CLI
+  kimi-cli:
+    build:
+      context: ./services/kimi-cli
+      dockerfile: Dockerfile
+    container_name: kimi-cli-service
+    restart: unless-stopped
+    environment:
+      - WORKSPACE_ROOT=/workspace
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - workspace_data:/workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - kimi-network
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Next.js Web App
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kimi-web
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-kimi}:${POSTGRES_PASSWORD:-kimi123}@postgres:5432/${POSTGRES_DB:-kimiweb}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_USERNAME=${GITHUB_USERNAME}
+      - KIMI_CLI_URL=http://kimi-cli:8000
+    volumes:
+      - workspace_data:/workspace
+    networks:
+      - kimi-network
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kimi-cli:
+        condition: service_started
+
+volumes:
+  postgres_data:
+    driver: local
+  workspace_data:
+    driver: local
+
+networks:
+  kimi-network:
+    driver: bridge

@@ -1,15 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { fetchRepos, ReposResponse } from "@/lib/github";
 import { RepoList } from "@/components/RepoList";
 import { Button } from "@/components/ui/button";
-import { Terminal, RefreshCw, AlertCircle } from "lucide-react";
+import { Terminal, RefreshCw, AlertCircle, LogOut, User } from "lucide-react";
 
 export default function Home() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [data, setData] = useState<ReposResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Redirigir a login si no está autenticado
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.push("/login");
+    }
+  }, [status, router]);
 
   const loadRepos = async () => {
     setLoading(true);
@@ -25,8 +36,45 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadRepos();
-  }, []);
+    if (status === "authenticated") {
+      loadRepos();
+    }
+  }, [status]);
+
+  const openInTerminal = async (repo: { clone_url: string; name: string }) => {
+    try {
+      const res = await fetch("/api/kimi/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo_url: repo.clone_url,
+          repo_name: repo.name,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok) {
+        router.push(`/terminal?repo=${encodeURIComponent(repo.name)}&path=${encodeURIComponent(result.path)}`);
+      } else {
+        setError(result.error || "Error al clonar");
+      }
+    } catch (err) {
+      setError("Error de conexión");
+    }
+  };
+
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (status === "unauthenticated") {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -38,14 +86,18 @@ export default function Home() {
               <Terminal className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight">GitHub → Kimi</h1>
+              <h1 className="font-bold text-lg leading-tight">Kimi Workspace</h1>
               <p className="text-xs text-muted-foreground leading-tight">
-                Repositorios a tu terminal
+                Entorno de desarrollo en la nube
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <User className="w-4 h-4" />
+              <span className="hidden sm:inline">{session?.user?.name || session?.user?.email}</span>
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -53,12 +105,19 @@ export default function Home() {
               disabled={loading}
               className="gap-2"
             >
-              <RefreshCw
-                className={`w-4 h-4 ${loading ? "animate-spin" : ""}`}
-              />
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">
                 {loading ? "Cargando..." : "Actualizar"}
               </span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              className="gap-2"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Salir</span>
             </Button>
           </div>
         </div>
@@ -88,23 +147,13 @@ export default function Home() {
             </Button>
           </div>
         ) : data ? (
-          <RepoList repos={data.repos} username={data.username} />
+          <RepoList 
+            repos={data.repos} 
+            username={data.username} 
+            onOpenTerminal={openInTerminal}
+          />
         ) : null}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between text-sm text-muted-foreground">
-          <p>GitHub → Kimi CLI</p>
-          <p>
-            Configura{" "}
-            <code className="bg-muted px-1.5 py-0.5 rounded text-xs">
-              GITHUB_TOKEN
-            </code>{" "}
-            en tu servidor
-          </p>
-        </div>
-      </footer>
     </div>
   );
 }

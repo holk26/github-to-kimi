@@ -4,28 +4,22 @@ import { GitHubRepo, getLanguageColor, formatDate } from "@/lib/github";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Star, GitFork, ExternalLink, Terminal, Copy, Check } from "lucide-react";
+import { Star, GitFork, ExternalLink, Terminal, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 interface RepoCardProps {
   repo: GitHubRepo;
+  onOpenTerminal?: (repo: { clone_url: string; name: string }) => void;
 }
 
-export function RepoCard({ repo }: RepoCardProps) {
-  const [copied, setCopied] = useState(false);
+export function RepoCard({ repo, onOpenTerminal }: RepoCardProps) {
+  const [loading, setLoading] = useState(false);
 
-  const kimiCommand = `cd ~/repos 2>/dev/null || mkdir -p ~/repos && cd ~/repos && git clone ${repo.ssh_url} && cd ${repo.name} && kimi`;
-
-  const handleCopyCommand = async () => {
-    await navigator.clipboard.writeText(kimiCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleOpenKimi = () => {
-    // Intentar usar un protocolo personalizado si está configurado
-    // Fallback: copiar comando al portapapeles
-    handleCopyCommand();
+  const handleOpenTerminal = async () => {
+    if (!onOpenTerminal) return;
+    setLoading(true);
+    await onOpenTerminal({ clone_url: repo.clone_url, name: repo.name });
+    setLoading(false);
   };
 
   return (
@@ -77,19 +71,15 @@ export function RepoCard({ repo }: RepoCardProps) {
             variant="default"
             size="sm"
             className="flex-1 gap-2"
-            onClick={handleOpenKimi}
+            onClick={handleOpenTerminal}
+            disabled={loading}
           >
-            {copied ? (
-              <>
-                <Check className="w-4 h-4" />
-                ¡Copiado!
-              </>
+            {loading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <>
-                <Terminal className="w-4 h-4" />
-                Abrir en Kimi
-              </>
+              <Terminal className="w-4 h-4" />
             )}
+            {loading ? "Abriendo..." : "Abrir en Kimi"}
           </Button>
           <Button
             variant="outline"
@@ -100,23 +90,6 @@ export function RepoCard({ repo }: RepoCardProps) {
             <ExternalLink className="w-4 h-4" />
             GitHub
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={handleCopyCommand}
-            title="Copiar comando"
-          >
-            {copied ? (
-              <Check className="w-4 h-4 text-green-500" />
-            ) : (
-              <Copy className="w-4 h-4" />
-            )}
-          </Button>
-        </div>
-
-        <div className="mt-3 p-2 bg-muted rounded-md text-xs font-mono text-muted-foreground overflow-x-auto">
-          <code className="whitespace-nowrap">{kimiCommand}</code>
         </div>
       </CardContent>
     </Card>
