@@ -10,17 +10,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Comando requerido" }, { status: 400 });
     }
 
-    // Primero verificar health del servicio
-    try {
-      const healthResponse = await fetch(`${KIMI_CLI_URL}/health`, {
-        method: "GET",
-      });
-      const healthData = await healthResponse.json();
-      console.log("Kimi CLI health:", healthData);
-    } catch (healthError) {
-      console.error("Kimi CLI health check failed:", healthError);
-    }
-
     const response = await fetch(`${KIMI_CLI_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +24,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Error executing command:", error);
     return NextResponse.json(
-      { error: "Error al ejecutar comando", details: String(error) },
+      { error: "Error al ejecutar comando" },
       { status: 500 }
     );
   }
