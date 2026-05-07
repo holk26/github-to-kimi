@@ -4,8 +4,9 @@ import { GitHubRepo, getLanguageColor, formatDate } from "@/lib/github";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Star, GitFork, ExternalLink, Terminal, Copy, Check } from "lucide-react";
+import { Star, GitFork, ExternalLink, Terminal, Copy, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface RepoCardProps {
   repo: GitHubRepo;
@@ -13,6 +14,8 @@ interface RepoCardProps {
 
 export function RepoCard({ repo }: RepoCardProps) {
   const [copied, setCopied] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const router = useRouter();
 
   const kimiCommand = `cd ~/repos 2>/dev/null || mkdir -p ~/repos && cd ~/repos && git clone ${repo.ssh_url} && cd ${repo.name} && kimi`;
 
@@ -22,10 +25,36 @@ export function RepoCard({ repo }: RepoCardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleOpenKimi = () => {
-    // Intentar usar un protocolo personalizado si está configurado
-    // Fallback: copiar comando al portapapeles
-    handleCopyCommand();
+  const handleOpenKimi = async () => {
+    setOpening(true);
+    try {
+      // 1. Llamar a la API para clonar el repo en el workspace
+      const response = await fetch("/api/kimi/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoUrl: repo.clone_url,
+          repoName: repo.name,
+          userId: "default-user",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Error al clonar el repositorio");
+      }
+
+      // 2. Redirigir a la terminal con el repo cargado
+      router.push(`/terminal?repo=${encodeURIComponent(repo.name)}`);
+    } catch (error) {
+      console.error("Error opening in Kimi:", error);
+      // Fallback: copiar comando al clipboard
+      handleCopyCommand();
+      alert("No se pudo abrir automáticamente. El comando ha sido copiado al portapapeles.");
+    } finally {
+      setOpening(false);
+    }
   };
 
   return (
@@ -78,8 +107,14 @@ export function RepoCard({ repo }: RepoCardProps) {
             size="sm"
             className="flex-1 gap-2"
             onClick={handleOpenKimi}
+            disabled={opening}
           >
-            {copied ? (
+            {opening ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Abriendo...
+              </>
+            ) : copied ? (
               <>
                 <Check className="w-4 h-4" />
                 ¡Copiado!
