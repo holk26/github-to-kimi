@@ -19,8 +19,11 @@ RUN apt-get update && apt-get install -y \
 
 RUN python3 -m pip install --upgrade pip
 
-# Instalar Kimi CLI
-RUN pip3 install --no-cache-dir kimi-cli
+# Instalar Kimi CLI usando el método oficial
+RUN curl -L code.kimi.com/install.sh | bash
+
+# Asegurar que kimi esté en el PATH
+ENV PATH="/root/.kimi/bin:${PATH}"
 
 # Verificar instalación
 RUN kimi --version
