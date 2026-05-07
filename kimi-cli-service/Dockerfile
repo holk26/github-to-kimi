@@ -42,4 +42,5 @@ RUN mkdir -p /workspace/users
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Ejecutar Kimi Web en el puerto 8000, accesible desde cualquier host
+CMD ["kimi", "web", "--host", "0.0.0.0", "--port", "8000", "--no-open", "--dangerously-allow-any-origin"]
