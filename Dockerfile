@@ -21,15 +21,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copiar solo lo necesario desde la etapa de construcción
+# Copiar todo desde la etapa de construcción
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-
-# Instalar solo dependencias de producción
-RUN npm ci --only=production
+COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
