@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GitHub → Kimi CLI",
-  description: "Lista tus repositorios de GitHub y ábrelos en Kimi CLI",
+  title: "Kimi Workspace",
+  description: "Tu entorno de desarrollo en la nube con Kimi CLI",
 };
 
 export default function RootLayout({

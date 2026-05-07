@@ -38,9 +38,9 @@ export default function Home() {
               <Terminal className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight">GitHub → Kimi</h1>
+              <h1 className="font-bold text-lg leading-tight">Kimi Workspace</h1>
               <p className="text-xs text-muted-foreground leading-tight">
-                Repositorios a tu terminal
+                Repositorios → Terminal
               </p>
             </div>
           </div>
