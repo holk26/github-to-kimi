@@ -1,0 +1,32 @@
+import { NextResponse } from "next/server";
+
+const KIMI_CLI_URL = process.env.KIMI_CLI_URL || "http://kimi-cli-a5jcf4:8000";
+
+export async function POST(req: Request) {
+  try {
+    const { command, cwd } = await req.json();
+
+    if (!command) {
+      return NextResponse.json({ error: "Comando requerido" }, { status: 400 });
+    }
+
+    const response = await fetch(`${KIMI_CLI_URL}/exec`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: "default-user",
+        command,
+        cwd,
+      }),
+    });
+
+    const result = await response.json();
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Error executing command:", error);
+    return NextResponse.json(
+      { error: "Error al ejecutar comando" },
+      { status: 500 }
+    );
+  }
+}
