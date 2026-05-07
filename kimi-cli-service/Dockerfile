@@ -42,7 +42,4 @@ RUN mkdir -p /workspace/users
 
 EXPOSE 8000
 
-# Script de inicio que ejecuta kimi web y mantiene el contenedor vivo
-RUN echo '#!/bin/bash\nkimi web --host 0.0.0.0 --port 8000 --no-open --dangerously-allow-any-origin &\nsleep 5\nwhile true; do\n  if ! pgrep -f "kimi web" > /dev/null; then\n    echo "kimi web stopped, restarting..."\n    kimi web --host 0.0.0.0 --port 8000 --no-open --dangerously-allow-any-origin &\n  fi\n  sleep 10\ndone' > /start.sh && chmod +x /start.sh
-
-CMD ["/start.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
