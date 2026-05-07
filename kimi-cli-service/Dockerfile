@@ -13,9 +13,17 @@ RUN apt-get update && apt-get install -y \
     wget \
     vim \
     nano \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --upgrade pip
+
+# Instalar Kimi CLI
+RUN pip3 install --no-cache-dir kimi-cli
+
+# Verificar instalación
+RUN kimi --version
 
 WORKDIR /app
 
