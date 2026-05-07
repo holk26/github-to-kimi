@@ -10,13 +10,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Comando requerido" }, { status: 400 });
     }
 
-    const response = await fetch(`${KIMI_CLI_URL}/exec`, {
+    const response = await fetch(`${KIMI_CLI_URL}/execute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: "default-user",
         command,
-        cwd,
       }),
     });
 
