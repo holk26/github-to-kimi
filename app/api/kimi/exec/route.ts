@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("Error executing command:", error);
     return NextResponse.json(
-      { error: "Error al ejecutar comando" },
+      { error: "Error al ejecutar comando", details: String(error) },
       { status: 500 }
     );
   }
