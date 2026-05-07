@@ -133,14 +133,14 @@ async def list_files(user_id: str, path: str = ""):
 
 @app.post("/kimi/run", dependencies=[Depends(verify_api_key)])
 async def run_kimi(request: CommandRequest):
-    """Run kimi CLI command (requires API key)"""
+    """Run kimi CLI command - installs it first if not present (requires API key)"""
     if not request.command or not request.command.strip():
         raise HTTPException(status_code=400, detail="Command is required")
     
     user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
     os.makedirs(user_dir, exist_ok=True)
     
-    # Check if kimi is installed
+    # Check if kimi is installed, if not install it
     kimi_check = subprocess.run(
         "which kimi",
         shell=True,
@@ -149,13 +149,31 @@ async def run_kimi(request: CommandRequest):
     )
     
     if kimi_check.returncode != 0:
-        return {
-            "output": "",
-            "error": "kimi CLI is not installed yet. Please wait for installation to complete.",
-            "returncode": 1,
-            "user_id": request.user_id
-        }
+        # Try to install kimi
+        try:
+            install_result = subprocess.run(
+                "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"/root/.local/bin:$PATH\" && uv tool install kimi-cli",
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if install_result.returncode != 0:
+                return {
+                    "output": "",
+                    "error": f"Failed to install kimi CLI:\n{install_result.stderr}",
+                    "returncode": 1,
+                    "user_id": request.user_id
+                }
+        except Exception as e:
+            return {
+                "output": "",
+                "error": f"Error installing kimi: {str(e)}",
+                "returncode": 1,
+                "user_id": request.user_id
+            }
     
+    # Run kimi command
     try:
         result = subprocess.run(
             f"kimi {request.command}",
