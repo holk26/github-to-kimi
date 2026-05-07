@@ -19,14 +19,17 @@ RUN apt-get update && apt-get install -y \
 
 RUN python3 -m pip install --upgrade pip
 
-# Instalar Kimi CLI usando el método oficial
-RUN curl -L code.kimi.com/install.sh | bash
+# Instalar uv (prerrequisito de Kimi CLI)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Asegurar que kimi esté en el PATH
-ENV PATH="/root/.kimi/bin:${PATH}"
+# Asegurar que uv y tools estén en el PATH
+ENV PATH="/root/.local/bin:/root/.cargo/bin:${PATH}"
+
+# Instalar Kimi CLI usando uv
+RUN /root/.local/bin/uv tool install kimi-cli
 
 # Verificar instalación
-RUN kimi --version
+RUN which kimi && kimi --version
 
 WORKDIR /app
 
