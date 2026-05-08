@@ -301,19 +301,23 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
     if query_string:
         target_path += f"?{query_string}"
     
-    target_url = f"http://localhost:{port}{target_path}"
+    target_url = f"http://127.0.0.1:{port}{target_path}"
     
     try:
         async with httpx.AsyncClient() as client:
             # Forward the request
             method = request.method
-            headers = dict(request.headers)
-            headers.pop("host", None)
+            headers = {
+                "User-Agent": request.headers.get("user-agent", "Kimi-Proxy/1.0"),
+                "Accept": request.headers.get("accept", "*/*"),
+                "Accept-Language": request.headers.get("accept-language", "*"),
+                "Accept-Encoding": request.headers.get("accept-encoding", "*"),
+                "Connection": "keep-alive",
+            }
             
-            # Add X-Forwarded headers for proper proxy behavior
-            headers["X-Forwarded-For"] = request.client.host if request.client else "127.0.0.1"
-            headers["X-Forwarded-Proto"] = "https"
-            headers["X-Forwarded-Host"] = request.headers.get("host", "kimi-cli.x.moonsbow.com")
+            # Copy content-type if present
+            if "content-type" in request.headers:
+                headers["Content-Type"] = request.headers["content-type"]
             
             if method == "GET":
                 response = await client.get(target_url, headers=headers, follow_redirects=True, timeout=30)
