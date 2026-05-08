@@ -105,8 +105,9 @@ async def open_kimi_web(request: KimiWebRequest):
             return {"error": str(e)}
     
     # Return the Kimi Web URL with the project directory
-    # This URL will be opened in the browser
-    kimi_web_url = f"http://kimi-cli-a5jcf4:{KIMI_WEB_PORT}?action=create-in-dir&workDir={project_dir}"
+    # Use public domain if available, otherwise internal
+    public_url = os.environ.get("KIMI_WEB_PUBLIC_URL", f"https://kimi-cli.x.moonsbow.com")
+    kimi_web_url = f"{public_url}?action=create-in-dir&workDir={project_dir}"
     
     return {
         "success": True,
