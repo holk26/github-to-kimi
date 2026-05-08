@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       message: "Kimi Web preparado exitosamente",
-      kimi_web_url: result.kimi_web_url,
+      kimi_web_url: result.url || result.kimi_web_url,
       repo_name: repoName,
       project_dir: result.project_dir,
     });
