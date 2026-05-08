@@ -184,7 +184,8 @@ async def open_kimi_web(request: Request):
         log_file = f"/tmp/kimi-web-{user_id}-{repo_name}.log"
         
         # Use nohup to keep process running after parent exits
-        cmd = f"nohup kimi web --host 0.0.0.0 --port {port} --work-dir {project_dir} --no-open > {log_file} 2>&1 &"
+        # kimi web takes the directory as a positional argument
+        cmd = f"cd {project_dir} && nohup kimi web --host 0.0.0.0 --port {port} --no-open > {log_file} 2>&1 &"
         
         subprocess.run(
             cmd,
