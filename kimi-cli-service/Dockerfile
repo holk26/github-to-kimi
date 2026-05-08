@@ -11,6 +11,9 @@ COPY main.py .
 COPY start.sh .
 RUN chmod +x start.sh
 
+# Force rebuild on every deploy
+RUN echo "v2.0.0-$(date +%s)" > /app/.version
+
 EXPOSE 8000
 
 CMD ["./start.sh"]
