@@ -311,7 +311,6 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
                 "User-Agent": request.headers.get("user-agent", "Kimi-Proxy/1.0"),
                 "Accept": request.headers.get("accept", "*/*"),
                 "Accept-Language": request.headers.get("accept-language", "*"),
-                "Accept-Encoding": request.headers.get("accept-encoding", "*"),
                 "Connection": "keep-alive",
             }
             
