@@ -18,6 +18,7 @@ app.add_middleware(
 
 WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", "/workspace")
 API_KEY = os.environ.get("API_KEY", "kimi-service-secret-key-2024")
+KIMI_WEB_PORT = int(os.environ.get("KIMI_WEB_PORT", "5494"))
 
 class CommandRequest(BaseModel):
     command: str
@@ -27,21 +28,14 @@ class WorkspaceRequest(BaseModel):
     user_id: str
     repo_url: str = None
 
+class KimiWebRequest(BaseModel):
+    user_id: str
+    repo_url: str
+    repo_name: str
+
 async def verify_api_key(request: Request, x_api_key: Optional[str] = Header(None)):
     """Verify API key from header, but allow all requests for now"""
-    # TEMPORARY: Allow all requests while web app deployment is stuck
-    # TODO: Re-enable API key check once web app is rebuilt
     return "allowed"
-    
-    # Original code (disabled temporarily):
-    # client_host = request.client.host if request.client else ""
-    # if client_host.startswith(("172.", "10.", "192.168.")):
-    #     return "internal"
-    # if not x_api_key:
-    #     raise HTTPException(status_code=401, detail="API key required")
-    # if x_api_key != API_KEY:
-    #     raise HTTPException(status_code=403, detail="Invalid API key")
-    # return x_api_key
 
 @app.get("/health")
 async def health_check():
@@ -51,37 +45,6 @@ async def health_check():
         "service": "kimi-cli",
         "version": "1.0.0"
     }
-
-@app.post("/execute", dependencies=[Depends(verify_api_key)])
-async def execute_command(request: CommandRequest):
-    """Execute a command in the user's workspace"""
-    if not request.command or not request.command.strip():
-        raise HTTPException(status_code=400, detail="Command is required")
-    
-    user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
-    os.makedirs(user_dir, exist_ok=True)
-    
-    try:
-        result = subprocess.run(
-            request.command,
-            shell=True,
-            cwd=user_dir,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-        
-        return {
-            "output": result.stdout,
-            "error": result.stderr,
-            "returncode": result.returncode,
-            "user_id": request.user_id,
-            "working_dir": user_dir
-        }
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=408, detail="Command timed out after 300 seconds")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/workspace/init", dependencies=[Depends(verify_api_key)])
 async def init_workspace(request: WorkspaceRequest):
@@ -113,42 +76,53 @@ async def init_workspace(request: WorkspaceRequest):
     
     return result_data
 
-@app.get("/workspace/{user_id}/files", dependencies=[Depends(verify_api_key)])
-async def list_files(user_id: str, path: str = ""):
-    """List files in user's workspace"""
-    user_dir = os.path.join(WORKSPACE_ROOT, "users", user_id)
-    target_dir = os.path.join(user_dir, path) if path else user_dir
+@app.post("/kimi-web/open", dependencies=[Depends(verify_api_key)])
+async def open_kimi_web(request: KimiWebRequest):
+    """Open Kimi Web UI with the specified project"""
+    user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
+    project_dir = os.path.join(user_dir, request.repo_name)
     
-    if not os.path.exists(target_dir):
-        raise HTTPException(status_code=404, detail="Path not found")
+    # Ensure workspace exists
+    os.makedirs(user_dir, exist_ok=True)
     
-    if not target_dir.startswith(user_dir):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Clone repo if not exists
+    if not os.path.exists(project_dir):
+        try:
+            result = subprocess.run(
+                f"git clone {request.repo_url} {request.repo_name}",
+                shell=True,
+                cwd=user_dir,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode != 0:
+                return {
+                    "error": f"Failed to clone: {result.stderr}",
+                    "returncode": result.returncode
+                }
+        except Exception as e:
+            return {"error": str(e)}
     
-    files = []
-    try:
-        for item in os.listdir(target_dir):
-            item_path = os.path.join(target_dir, item)
-            files.append({
-                "name": item,
-                "type": "directory" if os.path.isdir(item_path) else "file",
-                "path": os.path.relpath(item_path, user_dir)
-            })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # Return the Kimi Web URL with the project directory
+    # This URL will be opened in the browser
+    kimi_web_url = f"http://kimi-cli-a5jcf4:{KIMI_WEB_PORT}?action=create-in-dir&workDir={project_dir}"
     
-    return {"files": files, "user_id": user_id, "current_path": path}
+    return {
+        "success": True,
+        "kimi_web_url": kimi_web_url,
+        "project_dir": project_dir,
+        "repo_name": request.repo_name,
+        "message": "Project ready for Kimi Web"
+    }
 
-@app.post("/kimi/run", dependencies=[Depends(verify_api_key)])
-async def run_kimi(request: CommandRequest):
-    """Run kimi CLI command - installs it first if not present"""
-    if not request.command or not request.command.strip():
-        raise HTTPException(status_code=400, detail="Command is required")
-    
+@app.post("/kimi-web/start", dependencies=[Depends(verify_api_key)])
+async def start_kimi_web(request: CommandRequest):
+    """Start Kimi Web server for the user"""
     user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
     os.makedirs(user_dir, exist_ok=True)
     
-    # Check if kimi is installed, if not install it
+    # Check if kimi is installed
     kimi_check = subprocess.run(
         "which kimi",
         shell=True,
@@ -157,7 +131,7 @@ async def run_kimi(request: CommandRequest):
     )
     
     if kimi_check.returncode != 0:
-        # Try to install kimi
+        # Install kimi
         try:
             install_result = subprocess.run(
                 "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"/root/.local/bin:$PATH\" && uv tool install kimi-cli",
@@ -168,23 +142,41 @@ async def run_kimi(request: CommandRequest):
             )
             if install_result.returncode != 0:
                 return {
-                    "output": "",
-                    "error": f"Failed to install kimi CLI:\n{install_result.stderr}",
-                    "returncode": 1,
-                    "user_id": request.user_id
+                    "error": f"Failed to install kimi: {install_result.stderr}",
+                    "returncode": 1
                 }
         except Exception as e:
-            return {
-                "output": "",
-                "error": f"Error installing kimi: {str(e)}",
-                "returncode": 1,
-                "user_id": request.user_id
-            }
+            return {"error": str(e)}
     
-    # Run kimi command
+    # Start kimi web in background
+    try:
+        subprocess.Popen(
+            f"kimi web --host 0.0.0.0 --port {KIMI_WEB_PORT} --work-dir {user_dir} --no-open",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        return {
+            "success": True,
+            "kimi_web_url": f"http://kimi-cli-a5jcf4:{KIMI_WEB_PORT}",
+            "message": "Kimi Web started successfully"
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/execute", dependencies=[Depends(verify_api_key)])
+async def execute_command(request: CommandRequest):
+    """Execute a command in the user's workspace"""
+    if not request.command or not request.command.strip():
+        raise HTTPException(status_code=400, detail="Command is required")
+    
+    user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
+    os.makedirs(user_dir, exist_ok=True)
+    
     try:
         result = subprocess.run(
-            f"kimi {request.command}",
+            request.command,
             shell=True,
             cwd=user_dir,
             capture_output=True,

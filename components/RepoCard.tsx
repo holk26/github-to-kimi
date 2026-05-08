@@ -4,9 +4,8 @@ import { GitHubRepo, getLanguageColor, formatDate } from "@/lib/github";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Star, GitFork, ExternalLink, Terminal, Copy, Check, Loader2 } from "lucide-react";
+import { Star, GitFork, ExternalLink, Globe, Copy, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 interface RepoCardProps {
   repo: GitHubRepo;
@@ -15,7 +14,6 @@ interface RepoCardProps {
 export function RepoCard({ repo }: RepoCardProps) {
   const [copied, setCopied] = useState(false);
   const [opening, setOpening] = useState(false);
-  const router = useRouter();
 
   const kimiCommand = `cd ~/repos 2>/dev/null || mkdir -p ~/repos && cd ~/repos && git clone ${repo.ssh_url} && cd ${repo.name} && kimi`;
 
@@ -25,11 +23,11 @@ export function RepoCard({ repo }: RepoCardProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleOpenKimi = async () => {
+  const handleOpenKimiWeb = async () => {
     setOpening(true);
     try {
-      // 1. Llamar a la API para clonar el repo en el workspace
-      const response = await fetch("/api/kimi/clone", {
+      // 1. Llamar a la API para preparar el proyecto en Kimi Web
+      const response = await fetch("/api/kimi/open-web", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -41,17 +39,21 @@ export function RepoCard({ repo }: RepoCardProps) {
 
       const result = await response.json();
 
-      if (!response.ok) {
-        throw new Error(result.error || "Error al clonar el repositorio");
+      if (!response.ok || result.error) {
+        throw new Error(result.error || "Error al preparar Kimi Web");
       }
 
-      // 2. Redirigir a la terminal con el repo cargado
-      router.push(`/terminal?repo=${encodeURIComponent(repo.name)}`);
+      // 2. Abrir Kimi Web en una nueva pestaña
+      if (result.kimi_web_url) {
+        window.open(result.kimi_web_url, "_blank");
+      } else {
+        throw new Error("No se recibió URL de Kimi Web");
+      }
     } catch (error) {
-      console.error("Error opening in Kimi:", error);
+      console.error("Error opening Kimi Web:", error);
       // Fallback: copiar comando al clipboard
       handleCopyCommand();
-      alert("No se pudo abrir automáticamente. El comando ha sido copiado al portapapeles.");
+      alert("No se pudo abrir Kimi Web automáticamente. El comando ha sido copiado al portapapeles.");
     } finally {
       setOpening(false);
     }
@@ -106,7 +108,7 @@ export function RepoCard({ repo }: RepoCardProps) {
             variant="default"
             size="sm"
             className="flex-1 gap-2"
-            onClick={handleOpenKimi}
+            onClick={handleOpenKimiWeb}
             disabled={opening}
           >
             {opening ? (
@@ -114,15 +116,10 @@ export function RepoCard({ repo }: RepoCardProps) {
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Abriendo...
               </>
-            ) : copied ? (
-              <>
-                <Check className="w-4 h-4" />
-                ¡Copiado!
-              </>
             ) : (
               <>
-                <Terminal className="w-4 h-4" />
-                Abrir en Kimi
+                <Globe className="w-4 h-4" />
+                Abrir en Kimi Web
               </>
             )}
           </Button>
