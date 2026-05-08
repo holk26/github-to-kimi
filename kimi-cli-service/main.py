@@ -1,11 +1,14 @@
 import os
 import subprocess
+import re
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, PlainTextResponse
 from pydantic import BaseModel
 from typing import Optional
+import httpx
 
-app = FastAPI(title="Kimi CLI Service", version="1.1.0")
+app = FastAPI(title="Kimi CLI Service", version="2.0.0")
 
 # CORS configuration
 app.add_middleware(
@@ -18,8 +21,11 @@ app.add_middleware(
 
 WORKSPACE_ROOT = os.environ.get("WORKSPACE_ROOT", "/workspace")
 API_KEY = os.environ.get("API_KEY", "kimi-service-secret-key-2024")
-KIMI_WEB_PORT = int(os.environ.get("KIMI_WEB_PORT", "5494"))
+KIMI_WEB_PORT_START = int(os.environ.get("KIMI_WEB_PORT_START", "5494"))
 KIMI_WEB_PUBLIC_URL = os.environ.get("KIMI_WEB_PUBLIC_URL", "https://kimi-cli.x.moonsbow.com")
+
+# Track running kimi web instances: {user_id: {repo_name: port}}
+kimi_web_instances = {}
 
 class CommandRequest(BaseModel):
     command: str
@@ -34,16 +40,29 @@ class KimiWebRequest(BaseModel):
     repoUrl: str
     repoName: str
 
-class KimiWebRequestLegacy(BaseModel):
-    user_id: str
-    repo_url: str
-    repo_name: str
-
 async def verify_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")):
     """Verify API key from header"""
     if not x_api_key or x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return x_api_key
+
+def get_next_port():
+    """Get next available port for kimi web"""
+    used_ports = set()
+    for user_instances in kimi_web_instances.values():
+        for port in user_instances.values():
+            used_ports.add(port)
+    
+    port = KIMI_WEB_PORT_START
+    while port in used_ports:
+        port += 1
+    return port
+
+def is_port_in_use(port):
+    """Check if a port is already in use"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(('localhost', port)) == 0
 
 @app.get("/health")
 async def health_check():
@@ -51,7 +70,8 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "kimi-cli",
-        "version": "1.1.0"
+        "version": "2.0.0",
+        "active_instances": sum(len(v) for v in kimi_web_instances.values())
     }
 
 @app.post("/workspace/init", dependencies=[Depends(verify_api_key)])
@@ -86,7 +106,7 @@ async def init_workspace(request: WorkspaceRequest):
 
 @app.post("/kimi-web/open", dependencies=[Depends(verify_api_key)])
 async def open_kimi_web(request: Request):
-    """Open Kimi Web UI with the specified project - accepts both camelCase and snake_case"""
+    """Open Kimi Web UI with the specified project - starts kimi web server"""
     body = await request.json()
     
     # Support both camelCase (from frontend) and snake_case (legacy)
@@ -122,67 +142,79 @@ async def open_kimi_web(request: Request):
         except Exception as e:
             return {"error": str(e)}
     
-    # Return the public URL for the terminal with the repo
-    kimi_web_url = f"{KIMI_WEB_PUBLIC_URL}/terminal?repo={repo_name}&user={user_id}"
+    # Check if kimi web is already running for this user/repo
+    if user_id in kimi_web_instances and repo_name in kimi_web_instances[user_id]:
+        port = kimi_web_instances[user_id][repo_name]
+        # Verify it's still running
+        if is_port_in_use(port):
+            public_url = f"{KIMI_WEB_PUBLIC_URL}/web/{user_id}/{repo_name}"
+            return {
+                "success": True,
+                "url": public_url,
+                "kimi_web_url": public_url,
+                "project_dir": project_dir,
+                "repo_name": repo_name,
+                "user_id": user_id,
+                "port": port,
+                "message": "Kimi Web already running",
+                "already_running": True
+            }
     
-    return {
-        "success": True,
-        "url": kimi_web_url,
-        "kimi_web_url": kimi_web_url,
-        "project_dir": project_dir,
-        "repo_name": repo_name,
-        "user_id": user_id,
-        "message": "Project ready for Kimi Web"
-    }
-
-@app.post("/kimi-web/start", dependencies=[Depends(verify_api_key)])
-async def start_kimi_web(request: CommandRequest):
-    """Start Kimi Web server for the user"""
-    user_dir = os.path.join(WORKSPACE_ROOT, "users", request.user_id)
-    os.makedirs(user_dir, exist_ok=True)
-    
-    # Check if kimi is installed
-    kimi_check = subprocess.run(
-        "which kimi",
-        shell=True,
-        capture_output=True,
-        text=True
-    )
-    
-    if kimi_check.returncode != 0:
-        # Install kimi
-        try:
-            install_result = subprocess.run(
-                "curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"/root/.local/bin:$PATH\" && uv tool install kimi-cli",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-            if install_result.returncode != 0:
-                return {
-                    "error": f"Failed to install kimi: {install_result.stderr}",
-                    "returncode": 1
-                }
-        except Exception as e:
-            return {"error": str(e)}
+    # Find available port
+    port = get_next_port()
     
     # Start kimi web in background
     try:
+        env = os.environ.copy()
+        env["PATH"] = "/root/.local/bin:" + env.get("PATH", "")
+        
         subprocess.Popen(
-            f"kimi web --host 0.0.0.0 --port {KIMI_WEB_PORT} --work-dir {user_dir} --no-open",
+            f"kimi web --host 0.0.0.0 --port {port} --work-dir {project_dir} --no-open",
             shell=True,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            env=env
         )
+        
+        # Store instance info
+        if user_id not in kimi_web_instances:
+            kimi_web_instances[user_id] = {}
+        kimi_web_instances[user_id][repo_name] = port
+        
+        # Wait a moment for server to start
+        import time
+        time.sleep(2)
+        
+        public_url = f"{KIMI_WEB_PUBLIC_URL}/web/{user_id}/{repo_name}"
         
         return {
             "success": True,
-            "kimi_web_url": f"http://kimi-cli-a5jcf4:{KIMI_WEB_PORT}",
+            "url": public_url,
+            "kimi_web_url": public_url,
+            "project_dir": project_dir,
+            "repo_name": repo_name,
+            "user_id": user_id,
+            "port": port,
             "message": "Kimi Web started successfully"
         }
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/kimi-web/stop", dependencies=[Depends(verify_api_key)])
+async def stop_kimi_web(request: Request):
+    """Stop a running Kimi Web instance"""
+    body = await request.json()
+    user_id = body.get("userId") or body.get("user_id", "default")
+    repo_name = body.get("repoName") or body.get("repo_name", "")
+    
+    if user_id in kimi_web_instances and repo_name in kimi_web_instances[user_id]:
+        port = kimi_web_instances[user_id][repo_name]
+        # Kill process on port
+        subprocess.run(f"pkill -f 'kimi web --port {port}'", shell=True)
+        del kimi_web_instances[user_id][repo_name]
+        return {"success": True, "message": f"Kimi Web stopped on port {port}"}
+    
+    return {"success": False, "message": "No running instance found"}
 
 @app.post("/execute", dependencies=[Depends(verify_api_key)])
 async def execute_command(request: CommandRequest):
@@ -194,13 +226,17 @@ async def execute_command(request: CommandRequest):
     os.makedirs(user_dir, exist_ok=True)
     
     try:
+        env = os.environ.copy()
+        env["PATH"] = "/root/.local/bin:" + env.get("PATH", "")
+        
         result = subprocess.run(
             request.command,
             shell=True,
             cwd=user_dir,
             capture_output=True,
             text=True,
-            timeout=300
+            timeout=300,
+            env=env
         )
         
         return {
@@ -214,6 +250,69 @@ async def execute_command(request: CommandRequest):
         raise HTTPException(status_code=408, detail="Command timed out after 300 seconds")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/web/{user_id}/{repo_name}/{path:path}")
+async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Request):
+    """Proxy requests to the appropriate kimi web instance"""
+    if user_id not in kimi_web_instances or repo_name not in kimi_web_instances[user_id]:
+        raise HTTPException(status_code=404, detail="Kimi Web instance not found")
+    
+    port = kimi_web_instances[user_id][repo_name]
+    
+    # Build target URL
+    target_path = f"/{path}" if path else "/"
+    query_string = str(request.query_params) if request.query_params else ""
+    if query_string:
+        target_path += f"?{query_string}"
+    
+    target_url = f"http://localhost:{port}{target_path}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Forward the request
+            method = request.method
+            headers = dict(request.headers)
+            headers.pop("host", None)
+            
+            if method == "GET":
+                response = await client.get(target_url, headers=headers, follow_redirects=True)
+            elif method == "POST":
+                body = await request.body()
+                response = await client.post(target_url, headers=headers, content=body, follow_redirects=True)
+            else:
+                response = await client.request(method, target_url, headers=headers, follow_redirects=True)
+            
+            # Rewrite URLs in HTML content
+            content = response.content
+            content_type = response.headers.get("content-type", "")
+            
+            if "text/html" in content_type:
+                html = content.decode('utf-8', errors='replace')
+                # Rewrite absolute URLs to go through our proxy
+                html = re.sub(
+                    r'(href|src|action)="/([^"]*)"',
+                    rf'\1="/web/{user_id}/{repo_name}/\2"',
+                    html
+                )
+                html = re.sub(
+                    r"(href|src|action)='/([^']*)'",
+                    rf"\1='/web/{user_id}/{repo_name}/\2'",
+                    html
+                )
+                content = html.encode('utf-8')
+            
+            return PlainTextResponse(
+                content=content,
+                status_code=response.status_code,
+                headers=dict(response.headers)
+            )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error proxying to Kimi Web: {str(e)}")
+
+@app.get("/web/{user_id}/{repo_name}")
+async def proxy_kimi_web_root(user_id: str, repo_name: str, request: Request):
+    """Proxy root requests to kimi web instance"""
+    return await proxy_kimi_web(user_id, repo_name, "", request)
 
 if __name__ == "__main__":
     import uvicorn
