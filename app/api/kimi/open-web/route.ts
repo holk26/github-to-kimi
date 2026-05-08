@@ -43,9 +43,9 @@ export async function POST(req: Request) {
         "X-API-Key": KIMI_API_KEY,
       },
       body: JSON.stringify({
-        user_id: userId || "default",
-        repo_url: repoUrl,
-        repo_name: repoName,
+        userId: userId || "default",
+        repoUrl: repoUrl,
+        repoName: repoName,
       }),
     });
 
