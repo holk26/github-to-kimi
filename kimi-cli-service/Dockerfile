@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && rm -rf /root/.cache/pip
 
 # Force rebuild layer - v2.1.1
-RUN echo "build-2026-05-08-03"
+RUN echo "build-2026-05-08-04"
 
 COPY main.py .
 COPY start.sh .
