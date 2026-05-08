@@ -344,6 +344,17 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
                     rf"\1='/web/{user_id}/{repo_name}/\2'",
                     html
                 )
+                # Rewrite relative URLs (./path)
+                html = re.sub(
+                    rf'(href|src|action)="\.\/([^"]*)"',
+                    rf'\1="/web/{user_id}/{repo_name}/\2"',
+                    html
+                )
+                html = re.sub(
+                    rf"(href|src|action)='\.\/([^']*)'",
+                    rf"\1='/web/{user_id}/{repo_name}/\2'",
+                    html
+                )
                 # Also handle websocket URLs
                 html = re.sub(
                     r'ws://[^"\']*',
