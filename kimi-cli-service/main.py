@@ -1,14 +1,16 @@
 import os
 import subprocess
 import re
+import time
+import socket
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, PlainTextResponse
+from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 import httpx
 
-app = FastAPI(title="Kimi CLI Service", version="2.0.0")
+app = FastAPI(title="Kimi CLI Service", version="2.1.0")
 
 # CORS configuration
 app.add_middleware(
@@ -60,9 +62,17 @@ def get_next_port():
 
 def is_port_in_use(port):
     """Check if a port is already in use"""
-    import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(('localhost', port)) == 0
+
+def wait_for_port(port, timeout=30):
+    """Wait for a port to become available"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if is_port_in_use(port):
+            return True
+        time.sleep(0.5)
+    return False
 
 @app.get("/health")
 async def health_check():
@@ -70,7 +80,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "kimi-cli",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "active_instances": sum(len(v) for v in kimi_web_instances.values())
     }
 
@@ -159,21 +169,30 @@ async def open_kimi_web(request: Request):
                 "message": "Kimi Web already running",
                 "already_running": True
             }
+        else:
+            # Clean up stale entry
+            del kimi_web_instances[user_id][repo_name]
     
     # Find available port
     port = get_next_port()
     
-    # Start kimi web in background
+    # Start kimi web in background using nohup
     try:
         env = os.environ.copy()
         env["PATH"] = "/root/.local/bin:" + env.get("PATH", "")
         
-        subprocess.Popen(
-            f"kimi web --host 0.0.0.0 --port {port} --work-dir {project_dir} --no-open",
+        log_file = f"/tmp/kimi-web-{user_id}-{repo_name}.log"
+        
+        # Use nohup to keep process running after parent exits
+        cmd = f"nohup kimi web --host 0.0.0.0 --port {port} --work-dir {project_dir} --no-open > {log_file} 2>&1 &"
+        
+        subprocess.run(
+            cmd,
             shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env
+            cwd=project_dir,
+            env=env,
+            capture_output=True,
+            timeout=10
         )
         
         # Store instance info
@@ -181,9 +200,20 @@ async def open_kimi_web(request: Request):
             kimi_web_instances[user_id] = {}
         kimi_web_instances[user_id][repo_name] = port
         
-        # Wait a moment for server to start
-        import time
-        time.sleep(2)
+        # Wait for server to start
+        if not wait_for_port(port, timeout=30):
+            # Check logs for errors
+            try:
+                with open(log_file, 'r') as f:
+                    logs = f.read()
+            except:
+                logs = "Could not read logs"
+            
+            return {
+                "error": "Kimi Web failed to start within 30 seconds",
+                "logs": logs,
+                "port": port
+            }
         
         public_url = f"{KIMI_WEB_PUBLIC_URL}/web/{user_id}/{repo_name}"
         
@@ -259,6 +289,11 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
     
     port = kimi_web_instances[user_id][repo_name]
     
+    # Verify port is still active
+    if not is_port_in_use(port):
+        del kimi_web_instances[user_id][repo_name]
+        raise HTTPException(status_code=404, detail="Kimi Web instance is no longer running")
+    
     # Build target URL
     target_path = f"/{path}" if path else "/"
     query_string = str(request.query_params) if request.query_params else ""
@@ -275,12 +310,12 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
             headers.pop("host", None)
             
             if method == "GET":
-                response = await client.get(target_url, headers=headers, follow_redirects=True)
+                response = await client.get(target_url, headers=headers, follow_redirects=True, timeout=30)
             elif method == "POST":
                 body = await request.body()
-                response = await client.post(target_url, headers=headers, content=body, follow_redirects=True)
+                response = await client.post(target_url, headers=headers, content=body, follow_redirects=True, timeout=30)
             else:
-                response = await client.request(method, target_url, headers=headers, follow_redirects=True)
+                response = await client.request(method, target_url, headers=headers, follow_redirects=True, timeout=30)
             
             # Rewrite URLs in HTML content
             content = response.content
@@ -297,6 +332,12 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
                 html = re.sub(
                     r"(href|src|action)='/([^']*)'",
                     rf"\1='/web/{user_id}/{repo_name}/\2'",
+                    html
+                )
+                # Also handle websocket URLs
+                html = re.sub(
+                    r'ws://[^"\']*',
+                    f'wss://{request.headers.get("host", "kimi-cli.x.moonsbow.com")}/web/{user_id}/{repo_name}/ws',
                     html
                 )
                 content = html.encode('utf-8')
