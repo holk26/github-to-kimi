@@ -185,7 +185,7 @@ async def open_kimi_web(request: Request):
         
         # Use nohup to keep process running after parent exits
         # kimi web takes the directory as a positional argument
-        cmd = f"cd {project_dir} && nohup kimi web --host 0.0.0.0 --port {port} --no-open > {log_file} 2>&1 &"
+        cmd = f"cd {project_dir} && nohup kimi web --network --host 0.0.0.0 --port {port} --no-open > {log_file} 2>&1 &"
         
         subprocess.run(
             cmd,
@@ -309,6 +309,11 @@ async def proxy_kimi_web(user_id: str, repo_name: str, path: str, request: Reque
             method = request.method
             headers = dict(request.headers)
             headers.pop("host", None)
+            
+            # Add X-Forwarded headers for proper proxy behavior
+            headers["X-Forwarded-For"] = request.client.host if request.client else "127.0.0.1"
+            headers["X-Forwarded-Proto"] = "https"
+            headers["X-Forwarded-Host"] = request.headers.get("host", "kimi-cli.x.moonsbow.com")
             
             if method == "GET":
                 response = await client.get(target_url, headers=headers, follow_redirects=True, timeout=30)
